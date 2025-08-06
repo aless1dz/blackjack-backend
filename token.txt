@@ -1,0 +1,4 @@
+{
+  "type": "bearer",
+  "value": "oat_MzM.T3U2U2ZQa0ZJV1ZlQ19RZEgyS2pHYy1vZnlucnJnSFNfUXNZdkRsdjE4ODA3NDMwMTc"
+}

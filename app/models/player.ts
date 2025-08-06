@@ -27,6 +27,9 @@ export default class Player extends BaseModel {
   @column()
   declare isStand: boolean
 
+  @column()
+  declare hasCardRequest: boolean
+
   @column.dateTime({ autoCreate: true })
   declare createdAt: DateTime
 

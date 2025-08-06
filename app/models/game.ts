@@ -11,10 +11,13 @@ export default class Game extends BaseModel {
   declare hostName: string
 
   @column()
-  declare status: 'waiting' | 'playing' | 'finished'
+  declare status: 'waiting' | 'starting' | 'playing' | 'finished'
 
   @column()
   declare maxPlayers: number
+
+  @column()
+  declare currentPlayerTurn: number | null
 
   @column()
   declare winnerId: number | null
