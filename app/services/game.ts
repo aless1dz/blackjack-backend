@@ -306,7 +306,16 @@ export default class GameService {
     
     const suit = suits[Math.floor(Math.random() * suits.length)]
     const value = values[Math.floor(Math.random() * values.length)]
-    const card = `${value}_${suit}` // Formato interno: "A_hearts", "K_spades", etc.
+    
+    // Convertir directamente a formato con emoji para guardar en BD
+    const suitEmojis: { [key: string]: string } = {
+      'hearts': '♥️',
+      'diamonds': '♦️', 
+      'clubs': '♣️',
+      'spades': '♠️'
+    }
+    
+    const card = `${value}${suitEmojis[suit]}` // Formato directo con emoji: "A♥️", "K♠️", etc.
 
     console.log(`🃏 Carta generada: ${card} para jugador ${playerId}`)
 
@@ -334,7 +343,24 @@ export default class GameService {
     console.log(`🧮 Calculando puntos para ${player.cards.length} cartas:`)
     
     for (const cardItem of player.cards) {
-      const [cardValue] = cardItem.card.split('_') // Extraer valor de "A_hearts"
+      // Extraer valor de carta en formato emoji "A♥️", "10♠️", "K♦️"
+      const cardString = cardItem.card
+      let cardValue = ''
+      
+      // Extraer el valor removiendo el emoji del final
+      if (cardString.includes('♥️')) {
+        cardValue = cardString.replace('♥️', '')
+      } else if (cardString.includes('♦️')) {
+        cardValue = cardString.replace('♦️', '')
+      } else if (cardString.includes('♣️')) {
+        cardValue = cardString.replace('♣️', '')
+      } else if (cardString.includes('♠️')) {
+        cardValue = cardString.replace('♠️', '')
+      } else {
+        // Fallback para cartas en formato viejo
+        cardValue = cardString.split('_')[0] || cardString
+      }
+      
       let cardPoints = 0
       
       console.log(`   Procesando carta: ${cardItem.card}`)
@@ -657,20 +683,14 @@ export default class GameService {
       })
       .firstOrFail()
 
-    // Formatear las cartas de todos los jugadores para mostrar en español
+    // Las cartas ya vienen formateadas desde la base de datos (A♥️, K♠️, etc.)
     for (const player of game.players) {
-      // Agregar las cartas formateadas directamente al jugador
-      const formattedCards = []
+      // Crear array de cartas formateadas directamente de la BD
+      const formattedCards = player.cards.map(playerCard => playerCard.card)
       
+      // Agregar la carta ya formateada como propiedad adicional a cada carta
       for (const playerCard of player.cards) {
-        const [value, suit] = playerCard.card.split('_')
-        const formattedCard = this.formatCardToSpanish(value, suit)
-        
-        // Agregar la información formateada como propiedad adicional a la carta
-        ;(playerCard as any).formatted = formattedCard
-        
-        // También agregar al array de cartas formateadas del jugador
-        formattedCards.push(formattedCard)
+        ;(playerCard as any).formatted = playerCard.card
       }
       
       // Agregar array de cartas formateadas al jugador
