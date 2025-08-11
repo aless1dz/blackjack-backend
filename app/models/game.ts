@@ -22,6 +22,9 @@ export default class Game extends BaseModel {
   @column()
   declare winnerId: number | null
 
+  @column()
+  declare deck: string | null
+
   @column.dateTime({ autoCreate: true })
   declare createdAt: DateTime
 

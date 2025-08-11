@@ -2,63 +2,41 @@ import { Server as SocketServer } from 'socket.io'
 
 let io: SocketServer
 
-const initializeSocket = (httpServer: any) => {
+export function initializeSocket(httpServer: any) {
   io = new SocketServer(httpServer, {
     cors: {
-      origin: '*'
-    }
+      origin: '*',
+      methods: ['GET', 'POST'],
+    },
   })
 
   io.on('connection', (socket) => {
-    console.log(`Socket conectado: ${socket.id}`)
+    console.log('🔌 Cliente conectado:', socket.id)
 
-    socket.on('join:game', (gameId) => {
+    socket.on('join:game', (data) => {
+      // ✅ Manejar tanto número directo como objeto {gameId: number}
+      const gameId = typeof data === 'object' && data !== null ? data.gameId || data : data
+      console.log(`📥 Socket ${socket.id} se unió a game:${gameId}`, { originalData: data })
       socket.join(`game:${gameId}`)
-      console.log(`Socket ${socket.id} se unió a game:${gameId}`)
+      io.to(`game:${gameId}`).emit('chisme:playerJoined', {
+        socketId: socket.id,
+      })
     })
 
-    socket.on('notify:requestCard', (data) => {
-      const { gameId, playerId } = data
-      io.to(`game:${gameId}`).emit('chisme:requestCard', { playerId })
-    })
-
-    socket.on('notify:dealCard', (data) => {
-      const { gameId, playerId, card } = data
-      io.to(`game:${gameId}`).emit('chisme:dealCard', { playerId, card })
-    })
-
-    socket.on('notify:stand', (data) => {
-      const { gameId, playerId } = data
-      io.to(`game:${gameId}`).emit('chisme:stand', { playerId })
-    })
-
-    socket.on('notify:bust', (data) => {
-      const { gameId, playerId } = data
-      io.to(`game:${gameId}`).emit('chisme:bust', { playerId })
-    })
-
-    socket.on('notify:startGame', (data) => {
-      const { gameId } = data
-      io.to(`game:${gameId}`).emit('chisme:startGame')
-    })
-
-    socket.on('notify:gameEnd', (data) => {
-      const { gameId, winnerId } = data
-      io.to(`game:${gameId}`).emit('chisme:gameEnd', { winnerId })
-    })
-
-    socket.on('notify:leaveGame', (data) => {
-      const { gameId, playerId } = data
+    socket.on('leaveGame', (data) => {
+      const gameId = typeof data === 'object' && data !== null ? data.gameId || data : data
+      console.log(`📤 Socket ${socket.id} salió de game:${gameId}`)
       socket.leave(`game:${gameId}`)
-      io.to(`game:${gameId}`).emit('chisme:playerLeft', { playerId })
     })
 
-    socket.on('disconnect', () => {
-      console.log(`Socket desconectado: ${socket.id}`)
+    socket.on('disconnect', (reason) => {
+      console.log('❌ Cliente desconectado:', socket.id, 'Razón:', reason)
+    })
+
+    socket.on('connect_error', (error) => {
+      console.log('❌ Error de conexión:', error)
     })
   })
-
-  return io
 }
 
-export { io, initializeSocket }
+export { io }

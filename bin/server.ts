@@ -37,7 +37,6 @@ new Ignitor(APP_ROOT, { importer: IMPORTER })
     app.listen('SIGTERM', () => app.terminate())
     app.listenIf(app.managedByPm2, 'SIGINT', () => app.terminate())
     
-    // Inicializar Socket.IO cuando el servidor esté listo
     app.ready(async () => {
       const { initializeSocket } = await import('../start/socket.js')
       const server = await import('@adonisjs/core/services/server')
