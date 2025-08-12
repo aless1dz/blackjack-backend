@@ -1,4 +1,3 @@
-// controllers/games_controller.ts - Versión mejorada con eventos consistentes
 import type { HttpContext } from '@adonisjs/core/http'
 import GameService from '#services/game'
 import Player from '#models/player'
@@ -12,11 +11,8 @@ export default class GamesController {
       const hostName = request.input('hostName', user.fullName || user.email)
       const result = await GameService.createGame(user, maxPlayers, hostName)
       
-      io.emit('chisme:newGameCreated', { 
-        game: result.game,
-        host: result.hostPlayer,
-        message: 'Nueva partida creada'
-      })
+      // ✅ Solo notificar que se creó un juego, sin enviar datos
+      io.emit('chisme:newGameCreated')
       
       console.log(`🎮 Nueva partida creada: ${result.game.id} por ${hostName}`)
       
@@ -37,7 +33,8 @@ export default class GamesController {
 
       const player = await GameService.joinGame(gameId, user)
 
-      io.to(`game:${gameId}`).emit('chisme:playerJoined', { player })
+      // ✅ Solo notificar que un jugador se unió, sin enviar datos
+      io.to(`game:${gameId}`).emit('chisme:playerJoined')
       console.log(`Player ${player.player.name || JSON.stringify(player)} se unió a game:${gameId}`)
       return response.ok(player)
     } catch (error: any) {
@@ -67,7 +64,8 @@ export default class GamesController {
       const hostPlayerId = request.input('hostPlayerId')
       const result = await GameService.startGame(gameId, hostPlayerId)
 
-      io.to(`game:${gameId}`).emit('chisme:gameStarted', { game: result })
+      // ✅ Solo notificar que el juego comenzó, sin enviar datos
+      io.to(`game:${gameId}`).emit('chisme:gameStarted')
 
       return response.ok(result)
     } catch (error) {
@@ -98,7 +96,6 @@ export default class GamesController {
         throw new Error('Esta partida no está en progreso')
       }
 
-      console.log(`🃏 requestCard: Usuario ${user.id} en partida ${gameId}, turno actual: ${player.game.currentPlayerTurn}, su ID: ${player.id}`)
 
       if (player.game.currentPlayerTurn !== player.id) {
         throw new Error(`No es tu turno en esta partida. Tu ID: ${player.id}, Turno actual: ${player.game.currentPlayerTurn}`)
@@ -111,12 +108,8 @@ export default class GamesController {
       player.hasCardRequest = true
       await player.save()
 
-      console.log(`📨 Emitiendo evento chisme:playerRequestedCard para partida ${gameId}`)
-      io.to(`game:${gameId}`).emit('chisme:playerRequestedCard', { 
-        player,
-        gameId: gameId,
-        playerId: player.id
-      })
+      // ✅ Solo notificar que se solicitó una carta, sin enviar datos
+      io.to(`game:${gameId}`).emit('chisme:playerRequestedCard')
 
       return response.ok({
         message: 'Solicitud de carta enviada al anfitrión',
@@ -162,7 +155,8 @@ export default class GamesController {
       const dealResult = await GameService.dealCard(playerId)
       const gameState = await GameService.getGameWithPlayers(targetPlayer.gameId)
 
-      io.to(`game:${targetPlayer.gameId}`).emit('chisme:cardDealt', { game: gameState })
+      // ✅ Solo notificar que se repartió una carta, sin enviar datos
+      io.to(`game:${targetPlayer.gameId}`).emit('chisme:cardDealt')
 
       return response.ok({
         ...dealResult,
@@ -198,10 +192,8 @@ export default class GamesController {
 
       const result = await GameService.stand(player.id)
 
-      io.to(`game:${gameId}`).emit('chisme:playerStood', { 
-        playerId: player.id,
-        gameId: gameId
-      })
+      // ✅ Solo notificar que un jugador se plantó, sin enviar datos
+      io.to(`game:${gameId}`).emit('chisme:playerStood')
 
       return response.ok(result)
     } catch (error) {
@@ -234,10 +226,8 @@ export default class GamesController {
       const result = await GameService.stand(playerId)
       const gameState = await GameService.getGameWithPlayers(targetPlayer.gameId)
 
-      io.to(`game:${targetPlayer.gameId}`).emit('chisme:playerStood', {
-        playerId: playerId,
-        game: gameState,
-      })
+      // ✅ Solo notificar que un jugador se plantó, sin enviar datos
+      io.to(`game:${targetPlayer.gameId}`).emit('chisme:playerStood')
 
       return response.ok({
         ...result,
@@ -270,18 +260,11 @@ export default class GamesController {
       const result = await GameService.leaveGame(player.id)
 
       if (result.gameEnded) {
-        io.to(`game:${gameId}`).emit('chisme:gameEndedByLeave', { 
-          playerId: player.id,
-          gameId: gameId,
-          message: result.message,
-          reason: result.reason || 'player_left'
-        })
-        console.log(`🛑 Partida ${gameId} terminada por abandono: ${result.message}`)
+        // ✅ Solo notificar que el juego terminó por abandono, sin enviar datos
+        io.to(`game:${gameId}`).emit('chisme:gameEndedByLeave')
       } else {
-        io.to(`game:${gameId}`).emit('chisme:playerLeft', { 
-          playerId: player.id,
-          gameId: gameId
-        })
+        // ✅ Solo notificar que un jugador se fue, sin enviar datos
+        io.to(`game:${gameId}`).emit('chisme:playerLeft')
       }
 
       return response.ok(result)
@@ -294,16 +277,9 @@ export default class GamesController {
     try {
       const gameId = params.id
       const result = await GameService.finishGame(gameId)
-
-      // ✅ Evento consistente con prefijo
-      console.log('🔍 DEBUG FINISH - Enviando evento chisme:gameFinished:')
-      console.log('  - gameId:', gameId)
-      console.log('  - result.game:', result.game ? 'presente' : 'ausente')
-      console.log('  - result.winners:', result.winners)
-      console.log('  - result.gameResult:', result.gameResult)
-      console.log('  - result.message:', result.message)
       
-      io.to(`game:${gameId}`).emit('chisme:gameFinished', { game: result })
+      // ✅ Solo notificar que el juego terminó, sin enviar datos
+      io.to(`game:${gameId}`).emit('chisme:gameFinished')
 
       return response.ok({ ...result, message: 'Partida finalizada' })
     } catch (error) {
@@ -316,8 +292,8 @@ export default class GamesController {
       const gameId = params.id
       const result = await GameService.revealAndFinish(gameId)
 
-      // ✅ Evento consistente con prefijo
-      io.to(`game:${gameId}`).emit('chisme:gameFinished', { game: result })
+      // ✅ Solo notificar que el juego terminó, sin enviar datos
+      io.to(`game:${gameId}`).emit('chisme:gameFinished')
 
       return response.ok(result)
     } catch (error) {
@@ -331,8 +307,8 @@ export default class GamesController {
       const hostPlayerId = request.input('hostPlayerId')
       const result = await GameService.proposeRematch(gameId, hostPlayerId)
 
-      // ✅ Evento consistente con prefijo
-      io.to(`game:${gameId}`).emit('chisme:rematchProposed', { rematch: result })
+      // ✅ Solo notificar que se propuso revancha, sin enviar datos
+      io.to(`game:${gameId}`).emit('chisme:rematchProposed')
 
       return response.ok(result)
     } catch (error) {
@@ -345,85 +321,49 @@ export default class GamesController {
       const gameId = params.id
       const { playerId, accepted } = request.only(['playerId', 'accepted'])
       
-      if (!accepted) {
-        console.log(`❌ Jugador ${playerId} rechazó la revancha en partida ${gameId} - Cancelando para todos`)
-        io.to(`game:${gameId}`).emit('chisme:rematchCancelled', {
-          playerId,
-          gameId,
-          message: 'La revancha ha sido cancelada porque un jugador rechazó',
-          rejectedBy: playerId
-        })
-        const result = await GameService.respondToRematch(gameId, playerId, accepted)
-        return response.ok(result)
-      }
-
       const result = await GameService.respondToRematch(gameId, playerId, accepted)
       
-      io.to(`game:${gameId}`).emit('chisme:rematchResponse', { 
-        playerId, 
-        accepted, 
-        playerName: result.playerName || 'Jugador',
-        message: `${result.playerName || 'Un jugador'} aceptó la revancha`
-      })
-
-      if (result.newGameId) {
-        console.log(`🎮 Jugador se unió a partida de revancha ${result.newGameId}`)
-        
-        const originalGame = await GameService.getGameWithPlayers(gameId)
-        const rematchGame = await GameService.getGameWithPlayers(result.newGameId)
-        
-        const originalNonHostPlayers = originalGame.players.filter((p: any) => !p.isHost)
-        const rematchNonHostPlayers = rematchGame.players.filter((p: any) => !p.isHost)
-        
-        
-        if (rematchNonHostPlayers.length === originalNonHostPlayers.length) {
-          console.log('🎉 ¡TODOS los jugadores aceptaron la revancha! Redirigiendo a todos.')
-          console.log(`🚀 Emitiendo chisme:allPlayersAcceptedRematch a sala game:${gameId}`)
-          
-          const eventData = {
-            newGame: rematchGame,
-            newGameId: rematchGame.id,
-            message: 'Todos aceptaron la revancha - Redirigiendo a la nueva partida',
-            playersReady: rematchNonHostPlayers.length,
-            totalPlayers: originalNonHostPlayers.length
-          }
-          
-          io.to(`game:${gameId}`).emit('chisme:allPlayersAcceptedRematch', eventData)
-          console.log(`📡 Evento emitido a sala game:${gameId}`, eventData)
-        } else {
-          console.log(`⏳ Esperando más jugadores: ${rematchNonHostPlayers.length}/${originalNonHostPlayers.length}`)
-        }
-      }
-
-      // ✅ CAMBIO CLAVE: NO devolver newGameId en la respuesta individual para evitar redirección prematura
-      return response.ok({
-        message: result.message,
-        gameId: result.gameId,
-        playerId: result.playerId,
+      console.log(`📯 Controller respondToRematch result:`, {
         accepted: result.accepted,
-        // NO incluir newGameId aquí - solo se incluirá cuando TODOS hayan aceptado via evento
+        allPlayersAccepted: result.allPlayersAccepted,
+        gameRestarting: result.gameRestarting,
+        redirectToLobby: result.redirectToLobby
       })
+      
+      // ✅ PRIMERO enviar respuesta HTTP
+      const httpResponse = response.ok(result)
+      
+      // ✅ LUEGO emitir eventos socket (usando setTimeout para garantizar que la respuesta HTTP se envíe primero)
+      setTimeout(() => {
+        if (!accepted || result.rematchCancelled) {
+          if (result.redirectToLobby && result.allPlayersGoToLobby) {
+            console.log(`🚪 Emitiendo chisme:redirectToLobby para game:${gameId}`)
+            io.to(`game:${gameId}`).emit('chisme:redirectToLobby', {
+              reason: 'rematch_rejected',
+              message: result.message,
+              playerWhoRejected: result.playerName
+            })
+          } else {
+            console.log(`❌ Emitiendo chisme:rematchCancelled para game:${gameId}`)
+            io.to(`game:${gameId}`).emit('chisme:rematchCancelled')
+          }
+        } else if (result.allPlayersAccepted && result.gameRestarting) {
+          console.log(`🎉 Emitiendo chisme:gameRestarted para game:${gameId}`)
+          io.to(`game:${gameId}`).emit('chisme:gameRestarted')
+        } else {
+          console.log(`📧 Emitiendo chisme:rematchResponse para game:${gameId}`)
+          io.to(`game:${gameId}`).emit('chisme:rematchResponse')
+        }
+      }, 300) // 300ms delay para asegurar que el HTTP response se envíe y procese primero
+      
+      return httpResponse
     } catch (error) {
+      console.error(`❌ Error en respondToRematch:`, error.message)
       return response.badRequest({ message: error.message })
     }
   }
+  
 
-  public async createRematch({ request, params, response }: HttpContext) {
-    try {
-      const originalGameId = params.id
-      const acceptedPlayers = request.input('acceptedPlayers')
-      const result = await GameService.createRematch(originalGameId, acceptedPlayers)
-
-      // ✅ Evento consistente con prefijo
-      io.to(`game:${originalGameId}`).emit('chisme:newGameCreated', { newGame: result })
-
-      return response.ok(result)
-    } catch (error) {
-      return response.badRequest({ message: error.message })
-    }
-  }
-
-  // ... resto de métodos sin cambios
   public async status({ params, response }: HttpContext) {
     try {
       const gameId = params.id
@@ -472,4 +412,5 @@ export default class GamesController {
       return response.badRequest({ message: error.message })
     }
   }
+
 }

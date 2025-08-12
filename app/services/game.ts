@@ -16,7 +16,6 @@ export default class GameService {
       }
     }
     
-    // Mezclar la baraja usando el algoritmo Fisher-Yates
     for (let i = deck.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1))
       ;[deck[i], deck[j]] = [deck[j], deck[i]]
@@ -25,7 +24,6 @@ export default class GameService {
     return deck
   }
   
-  // Obtener una carta de la baraja del juego
   private static async drawCardFromDeck(gameId: number, trx?: any): Promise<{ cardKey: string; formattedCard: string }> {
     const game = await Game.query(trx ? { client: trx } : {})
       .where('id', gameId)
@@ -35,7 +33,6 @@ export default class GameService {
       throw new Error('No hay baraja en el juego')
     }
     
-    // Deserializar la baraja
     let currentDeck: string[]
     try {
       currentDeck = JSON.parse(game.deck)
@@ -47,10 +44,8 @@ export default class GameService {
       throw new Error('No hay más cartas en la baraja')
     }
     
-    // Tomar la primera carta de la baraja
     const cardKey = currentDeck.shift()!
     
-    // Actualizar la baraja en la base de datos
     const updatedDeckJson = JSON.stringify(currentDeck)
     if (trx) {
       await Game.query({ client: trx }).where('id', gameId).update({ deck: updatedDeckJson })
@@ -59,7 +54,6 @@ export default class GameService {
       await game.save()
     }
     
-    // Convertir la clave de carta a formato visual
     const [value, suit] = cardKey.split('_')
     const suitEmojis: { [key: string]: string } = {
       hearts: '♥️',
@@ -73,7 +67,6 @@ export default class GameService {
     return { cardKey, formattedCard }
   }
   public static async createGame(user: any, maxPlayers: number = 6, hostName?: string) {
-    // ✅ Validar límites de jugadores: mínimo 3, máximo 6 (sin contar host)
     if (maxPlayers < 3) {
       throw new Error('Se necesitan mínimo 3 jugadores además del host (4 jugadores total)')
     }
@@ -81,7 +74,6 @@ export default class GameService {
       throw new Error('Máximo 6 jugadores además del host (7 jugadores total)')
     }
     
-    // Crear la baraja completa de 52 cartas
     const fullDeck = this.createFullDeck()
     
     const game = await Game.create({
@@ -270,7 +262,8 @@ export default class GameService {
     if (result && result.status === 'playing') {
       const { io } = await import('#start/socket')
       console.log(`🎮 Auto-starting game ${gameId} - emitting chisme:gameStarted`)
-      io.to(`game:${gameId}`).emit('chisme:gameStarted', { game: result })
+      // ✅ Solo notificar que el juego se inició automáticamente, sin enviar datos
+      io.to(`game:${gameId}`).emit('chisme:gameStarted')
     }
 
     return result
@@ -366,7 +359,6 @@ export default class GameService {
       .preload('cards')
       .firstOrFail()
 
-    // Obtener una carta de la baraja del juego
     const { cardKey, formattedCard } = await this.drawCardFromDeck(player.gameId, trx)
 
     // Crear la carta del jugador
@@ -427,7 +419,7 @@ export default class GameService {
     player.totalPoints = totalPoints
     player.hasCardRequest = false
 
-    // Verificar si el jugador se planta automáticamente
+    // Verificar si el jugador se planta automáticamente o gana
     if (totalPoints > 21) {
       player.isStand = true
     } else if (totalPoints === 21) {
@@ -440,7 +432,21 @@ export default class GameService {
     }
     await player.save()
 
-    // Lógica de turnos
+    // 🎉 NUEVA LÓGICA: Si alguien llega a 21, termina el juego inmediatamente
+    if (!skipTurnLogic && totalPoints === 21) {
+      console.log(`🎉 ¡${player.name} llegó a 21! Terminando juego inmediatamente...`)
+      
+      // Terminar el juego inmediatamente
+      const endResult = await this.endGameWithWinner(player.gameId, player.userId)
+      
+      const { io } = await import('#start/socket')
+      // ✅ Notificar que el juego terminó por 21
+      io.to(`game:${player.gameId}`).emit('chisme:gameFinished')
+      
+      return { totalPoints, card: this.formatCardToSpanish(cardKey.split('_')[0], cardKey.split('_')[1]), cardRaw: formattedCard, gameWon: true, winner: player.name }
+    }
+
+    // Lógica de turnos normal (solo si no se ganó con 21)
     if (!skipTurnLogic) {
       const remainingPlayers = await Player.query(trx ? { client: trx } : {})
         .where('game_id', player.gameId)
@@ -452,23 +458,10 @@ export default class GameService {
         const endResult = await this.endGame(player.gameId)
         const gameWithPlayers = await this.getGameWithPlayers(player.gameId)
         
-        // ✅ Emitir evento cuando el juego termina automáticamente
-        console.log('🔍 DEBUG AUTO FINISH - Enviando evento chisme:gameFinished:')
-        console.log('  - gameId:', player.gameId)
-        console.log('  - winners:', endResult.winners)
-        console.log('  - gameResult:', endResult.gameResult)
-        console.log('  - winnerId en BD:', gameWithPlayers.winnerId)
-        
-        const eventData = {
-          game: gameWithPlayers,
-          winners: endResult.winners,
-          gameResult: endResult.gameResult,
-          message: 'Partida terminada automáticamente'
-        }
         
         const { io } = await import('#start/socket')
-        io.to(`game:${player.gameId}`).emit('chisme:gameFinished', eventData)
-        console.log('📡 Evento AUTO FINISH emitido:', eventData)
+        // ✅ Solo notificar que el juego terminó, sin enviar datos
+        io.to(`game:${player.gameId}`).emit('chisme:gameFinished')
       } else {
         await this.nextTurn(player.gameId)
       }
@@ -580,14 +573,9 @@ export default class GameService {
       const endResult = await this.endGame(player.gameId)
       const gameWithPlayers = await this.getGameWithPlayers(player.gameId)
       
-      // ✅ Emitir evento cuando el juego termina automáticamente por stand
+      // ✅ Solo notificar que el juego terminó por stand, sin enviar datos
       const { io } = await import('#start/socket')
-      io.to(`game:${player.gameId}`).emit('chisme:gameFinished', { 
-        game: gameWithPlayers,
-        winners: endResult.winners,
-        gameResult: endResult.gameResult,
-        message: 'Partida terminada - Todos los jugadores se plantaron'
-      })
+      io.to(`game:${player.gameId}`).emit('chisme:gameFinished')
     } else {
       await this.nextTurn(player.gameId)
     }
@@ -614,14 +602,8 @@ export default class GameService {
       const endResult = await this.endGame(gameId)
       const gameWithPlayers = await this.getGameWithPlayers(gameId)
       
-      // ✅ Emitir evento cuando el juego termina desde nextTurn
       const { io } = await import('#start/socket')
-      io.to(`game:${gameId}`).emit('chisme:gameFinished', { 
-        game: gameWithPlayers,
-        winners: endResult.winners,
-        gameResult: endResult.gameResult,
-        message: 'Partida terminada - No hay más jugadores activos'
-      })
+      io.to(`game:${gameId}`).emit('chisme:gameFinished')
       return
     }
 
@@ -686,6 +668,35 @@ export default class GameService {
     await game.save()
 
     return { winners, gameResult }
+  }
+
+  // 🎯 NUEVO MÉTODO: Terminar juego con ganador específico (para cuando alguien llega a 21)
+  private static async endGameWithWinner(gameId: number, winnerUserId: number) {
+    const game = await Game.query()
+      .where('id', gameId)
+      .preload('players', (query) => {
+        query.preload('cards')
+      })
+      .firstOrFail()
+
+    game.status = 'finished'
+    game.winnerId = winnerUserId
+
+    await game.save()
+
+    const winnerPlayer = game.players.find((p) => p.userId === winnerUserId)
+    const gameResult = winnerPlayer 
+      ? `🎉 ¡${winnerPlayer.name} ganó con 21 puntos exactos!`
+      : 'Juego terminado'
+
+    console.log(`🏆 Juego ${gameId} terminado - Ganador: ${winnerPlayer?.name} (21 puntos)`)
+
+    return { 
+      winners: winnerPlayer ? [winnerPlayer] : [], 
+      gameResult,
+      instantWin: true,
+      reason: 'blackjack_21'
+    }
   }
 
   public static async restartGame(gameId: number, hostPlayerId: number) {
@@ -983,16 +994,230 @@ export default class GameService {
       throw new Error('Solo se puede proponer revancha cuando el juego ha terminado')
     }
 
+    if (game.rematchProposed) {
+      throw new Error('Ya se ha propuesto una revancha para esta partida')
+    }
+
+    // Marcar la revancha como propuesta e inicializar respuestas
+    const nonHostPlayers = game.players.filter((p) => !p.isHost)
+    const initialResponses = nonHostPlayers.map(player => ({
+      playerId: player.id,
+      userId: player.userId,
+      playerName: player.name,
+      accepted: null, // null = no ha respondido, true = aceptó, false = rechazó
+      respondedAt: null
+    }))
+
+    game.rematchProposed = true
+    game.rematchResponses = initialResponses
+    await game.save()
+
+    return {
+      message: 'Revancha propuesta - esperando respuestas de todos los jugadores',
+      gameId: gameId,
+      hostPlayer: {
+        id: hostPlayer.id,
+        name: hostPlayer.name,
+        userId: hostPlayer.userId
+      },
+      playersToNotify: nonHostPlayers.map(p => ({
+        id: p.id,
+        name: p.name,
+        userId: p.userId
+      })),
+      totalPlayersNeeded: nonHostPlayers.length,
+      rematchRound: game.rematchRound
+    }
+  }
+
+  public static async respondToRematch(gameId: number, playerId: number, accepted: boolean) {
+    console.log(`🎯 respondToRematch: gameId=${gameId}, playerId=${playerId}, accepted=${accepted}`)
+    
+    const game = await Game.query().where('id', gameId).preload('players').firstOrFail()
+    const player = await Player.findOrFail(playerId)
+
+    console.log(`📊 Estado actual: rematchProposed=${game.rematchProposed}, status=${game.status}`)
+
+    // ✅ VALIDACIÓN MEJORADA: Verificar estados válidos
+    if (game.status === 'lobby_redirect') {
+      throw new Error('La revancha ya fue rechazada y todos los jugadores fueron redirigidos al lobby')
+    }
+
+    if (!game.rematchProposed) {
+      throw new Error('No hay una propuesta de revancha activa')
+    }
+
+    if (!game.rematchResponses || !Array.isArray(game.rematchResponses)) {
+      throw new Error('Estado de revancha inválido')
+    }
+
+    // Buscar la respuesta del jugador
+    const playerResponseIndex = game.rematchResponses.findIndex(
+      (response: any) => response.playerId === playerId
+    )
+
+    if (playerResponseIndex === -1) {
+      throw new Error('Jugador no encontrado en las respuestas de revancha')
+    }
+
+    // ✅ VALIDACIÓN: Evitar respuestas duplicadas
+    const currentResponse = game.rematchResponses[playerResponseIndex]
+    if (currentResponse.accepted !== null) {
+      console.log(`⚠️ Jugador ${player.name} ya respondió: ${currentResponse.accepted}`)
+      throw new Error(`Ya has respondido a esta revancha con: ${currentResponse.accepted ? 'Sí' : 'No'}`)
+    }
+
+    // Actualizar la respuesta del jugador
+    game.rematchResponses[playerResponseIndex].accepted = accepted
+    game.rematchResponses[playerResponseIndex].respondedAt = new Date().toISOString()
+
+    console.log(`✅ Respuesta guardada para ${player.name}: ${accepted}`)
+
+    if (!accepted) {
+      // Si alguien rechaza, cancelar toda la revancha y terminar la partida completamente
+      console.log(`❌ ${player.name} rechazó la revancha - Cancelando para todos`)
+      
+      game.rematchProposed = false
+      game.rematchResponses = null
+      game.status = 'lobby_redirect' // Nuevo estado para indicar que todos van al lobby
+      await game.save()
+
+      console.log(`🚪 Partida ${gameId} marcada para redirección al lobby`)
+
+      return {
+        message: 'Revancha rechazada - Todos los jugadores serán redirigidos al lobby',
+        gameId,
+        playerId,
+        playerName: player.name,
+        accepted: false,
+        rematchCancelled: true,
+        redirectToLobby: true, // Bandera para el frontend
+        allPlayersGoToLobby: true
+      }
+    }
+
+    // Si acepta, verificar si todos han aceptado
+    const allAccepted = game.rematchResponses.every((response: any) => response.accepted === true)
+    const allResponded = game.rematchResponses.every((response: any) => response.accepted !== null)
+
+    console.log(`📋 Estado respuestas: allAccepted=${allAccepted}, allResponded=${allResponded}`)
+    console.log(`📊 Respuestas actuales:`, game.rematchResponses.map((r: any) => `${r.playerName}: ${r.accepted}`).join(', '))
+
+    await game.save()
+
+    if (allAccepted && allResponded) {
+      // ¡Todos aceptaron! Reiniciar la partida
+      console.log(`🎉 ¡Todos aceptaron! Reiniciando partida ${gameId}`)
+      await this.restartGameForRematch(gameId)
+
+      return {
+        message: 'Revancha aceptada - ¡Todos aceptaron! La partida se está reiniciando...',
+        gameId,
+        playerId,
+        playerName: player.name,
+        accepted: true,
+        allPlayersAccepted: true,
+        gameRestarting: true
+      }
+    }
+
+    const remainingCount = game.rematchResponses.filter((r: any) => r.accepted === null).length
+    console.log(`⏳ Esperando ${remainingCount} respuestas más`)
+
+    return {
+      message: 'Revancha aceptada - Esperando que otros jugadores respondan',
+      gameId,
+      playerId,
+      playerName: player.name,
+      accepted: true,
+      waitingForOthers: true,
+      responsesRemaining: remainingCount
+    }
+  }
+  /**
+   * Reinicia la misma partida cuando todos aceptaron la revancha
+   * Limpia cartas, puntos, ganador y genera nueva baraja
+   */
+  private static async restartGameForRematch(gameId: number) {
+    const game = await Game.query().where('id', gameId).preload('players').firstOrFail()
+    
+    console.log(`🔄 Reiniciando partida ${gameId} para revancha (Ronda ${game.rematchRound + 1})`)
+    
+    // Limpiar todas las cartas de todos los jugadores
+    for (const player of game.players) {
+      await PlayerCard.query().where('player_id', player.id).delete()
+      
+      // Resetear estadísticas del jugador (excepto host status)
+      player.totalPoints = 0
+      player.isStand = false
+      player.hasCardRequest = false
+      await player.save()
+    }
+    
+    // Generar nueva baraja barajada
+    const newDeck = this.createFullDeck()
+    
+    // Resetear estado del juego
+    game.status = 'waiting'
+    game.winnerId = null
+    game.currentPlayerTurn = null
+    game.deck = JSON.stringify(newDeck)
+    game.rematchProposed = false
+    game.rematchResponses = null
+    game.rematchRound = (game.rematchRound || 1) + 1
+    
+    await game.save()
+    
+    console.log(`✅ Partida ${gameId} reiniciada exitosamente para Ronda ${game.rematchRound}`)
+    
+    return game
+  }
+
+  // ✅ NUEVO método: Solo crear la partida cuando TODOS hayan aceptado
+  public static async createRematchIfAllAccepted(gameId: number, acceptedPlayerIds: number[]) {
+    const originalGame = await Game.query()
+      .where('id', gameId)
+      .preload('players')
+      .firstOrFail()
+
+    const hostPlayer = originalGame.players.find(p => p.isHost)
+    if (!hostPlayer) {
+      throw new Error('No se encontró el host de la partida original')
+    }
+
+    const originalNonHostPlayers = originalGame.players.filter(p => !p.isHost)
+    
+    // Verificar que TODOS los jugadores no-host hayan aceptado
+    if (acceptedPlayerIds.length !== originalNonHostPlayers.length) {
+      return {
+        allAccepted: false,
+        acceptedCount: acceptedPlayerIds.length,
+        totalCount: originalNonHostPlayers.length,
+        message: `Esperando más respuestas: ${acceptedPlayerIds.length}/${originalNonHostPlayers.length}`,
+      }
+    }
+
+    // Verificar que todos los IDs de jugadores aceptados sean válidos
+    const validPlayerIds = originalNonHostPlayers.map(p => p.id)
+    const allValid = acceptedPlayerIds.every(id => validPlayerIds.includes(id))
+    if (!allValid) {
+      throw new Error('Algunos jugadores aceptados no pertenecen a la partida original')
+    }
+
+    // ✅ TODOS aceptaron - ahora sí crear la nueva partida
+    console.log('🎉 TODOS los jugadores aceptaron la revancha - Creando nueva partida')
+    
     // Crear una nueva baraja para la revancha
     const fullDeck = this.createFullDeck()
 
     const newGame = await Game.create({
-      hostName: game.hostName,
+      hostName: originalGame.hostName,
       status: 'waiting',
-      maxPlayers: game.maxPlayers,
+      maxPlayers: originalGame.maxPlayers,
       deck: JSON.stringify(fullDeck),
     })
 
+    // Crear el host en la nueva partida
     const newHostPlayer = await Player.create({
       gameId: newGame.id,
       userId: hostPlayer.userId,
@@ -1002,104 +1227,35 @@ export default class GameService {
       isStand: false,
     })
 
-    return {
-      message: 'Nueva partida creada para revancha',
-      originalGameId: gameId,
-      newGameId: newGame.id,
-      newGame: await Game.query().where('id', newGame.id).preload('players').firstOrFail(),
-      playersToNotify: game.players.filter((p) => !p.isHost),
-      rematchInfo: {
-        hostPlayer: newHostPlayer,
-        maxPlayers: newGame.maxPlayers,
-        waitingForPlayers: true,
-      },
-    }
-  }
-
-  public static async respondToRematch(gameId: number, playerId: number, accepted: boolean) {
-    const player = await Player.findOrFail(playerId)
-    const originalGame = await Game.query()
-      .where('id', gameId)
-      .preload('players')
-      .firstOrFail()
-
-    if (!accepted) {
-      return {
-        message: 'Revancha rechazada',
-        gameId,
-        playerId,
-        accepted: false,
-      }
-    }
-
-    // Si acepta, intentar encontrar si ya existe una partida de revancha activa
-    const hostPlayer = originalGame.players.find(p => p.isHost)
-    if (!hostPlayer) {
-      throw new Error('No se encontró el host de la partida original')
-    }
-
-    // Buscar partida de revancha activa creada por este host
-    const rematchGame = await Game.query()
-      .where('status', 'waiting')
-      .whereHas('players', (query) => {
-        query.where('user_id', hostPlayer.userId).where('is_host', true)
+    // Agregar todos los jugadores que aceptaron
+    const acceptedPlayers = originalNonHostPlayers.filter(p => acceptedPlayerIds.includes(p.id))
+    
+    for (const originalPlayer of acceptedPlayers) {
+      await Player.create({
+        gameId: newGame.id,
+        userId: originalPlayer.userId,
+        name: originalPlayer.name,
+        isHost: false,
+        totalPoints: 0,
+        isStand: false,
       })
+    }
+
+    // Recargar la partida con todos los jugadores
+    const finalNewGame = await Game.query()
+      .where('id', newGame.id)
       .preload('players', (query) => {
         query.preload('user')
       })
-      .orderBy('created_at', 'desc')
-      .first()
+      .firstOrFail()
 
-    if (rematchGame) {
-      // Verificar si el jugador ya está en la partida de revancha
-      const existingPlayer = rematchGame.players.find(p => p.userId === player.userId)
-      
-      if (!existingPlayer) {
-        // Agregar el jugador a la partida de revancha
-        console.log(`🔄 ANTES de agregar: Jugadores en revancha ${rematchGame.id}: ${rematchGame.players.length}`)
-        console.log(`🔄 Agregando jugador ${player.name} (userID: ${player.userId}) a revancha`)
-        
-        const newPlayer = await Player.create({
-          gameId: rematchGame.id,
-          userId: player.userId,
-          name: player.name,
-          isHost: false,
-          totalPoints: 0,
-          isStand: false,
-        })
-
-        console.log(`✅ Jugador ${player.name} (ID: ${newPlayer.id}) unido a partida de revancha ${rematchGame.id}`)
-        
-        // Recargar la partida de revancha con todos los jugadores
-        const updatedRematchGame = await Game.query()
-          .where('id', rematchGame.id)
-          .preload('players', (query) => {
-            query.preload('user')
-          })
-          .firstOrFail()
-
-        return {
-          message: 'Revancha aceptada - Te has unido a la nueva partida',
-          gameId,
-          playerId,
-          playerName: player.name,
-          accepted: true,
-          newGameId: rematchGame.id,
-          newGame: updatedRematchGame,
-        }
-      } else {
-        return {
-          message: 'Revancha aceptada - Ya estás en la partida',
-          gameId,
-          playerId,
-          playerName: player.name,
-          accepted: true,
-          newGameId: rematchGame.id,
-          newGame: rematchGame,
-        }
-      }
-    } else {
-      throw new Error('No se encontró una partida de revancha activa')
+    return {
+      allAccepted: true,
+      newGameId: newGame.id,
+      newGame: finalNewGame,
+      message: 'Nueva partida creada - Todos los jugadores aceptaron la revancha',
+      acceptedCount: acceptedPlayerIds.length,
+      totalCount: originalNonHostPlayers.length,
     }
   }
 

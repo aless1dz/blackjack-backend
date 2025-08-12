@@ -11,7 +11,7 @@ export default class Game extends BaseModel {
   declare hostName: string
 
   @column()
-  declare status: 'waiting' | 'starting' | 'playing' | 'finished'
+  declare status: 'waiting' | 'starting' | 'playing' | 'finished' | 'lobby_redirect'
 
   @column()
   declare maxPlayers: number
@@ -24,6 +24,18 @@ export default class Game extends BaseModel {
 
   @column()
   declare deck: string | null
+
+  @column()
+  declare rematchProposed: boolean
+
+  @column({
+    prepare: (value: any) => JSON.stringify(value),
+    consume: (value: string) => value ? JSON.parse(value) : null
+  })
+  declare rematchResponses: any
+
+  @column()
+  declare rematchRound: number
 
   @column.dateTime({ autoCreate: true })
   declare createdAt: DateTime

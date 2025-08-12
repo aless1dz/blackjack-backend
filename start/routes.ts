@@ -46,7 +46,6 @@ router.group(() => {
   router.post('/games/:id/reveal-finish', '#controllers/games_controller.revealAndFinish')
   router.post('/games/:id/propose-rematch', '#controllers/games_controller.proposeRematch')
   router.post('/games/:id/respond-rematch', '#controllers/games_controller.respondToRematch')
-  router.post('/games/:id/create-rematch', '#controllers/games_controller.createRematch')
   router.get('/games/:id/players-for-rematch', '#controllers/games_controller.getPlayersForRematch')
   router.get('/games/:id/pending-card-requests', '#controllers/games_controller.getPendingCardRequests')
 }).prefix('/api').use(middleware.auth())
